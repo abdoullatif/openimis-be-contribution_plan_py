@@ -45,7 +45,6 @@ class CreatePaymentPlanMutation(BaseHistoryModelCreateMutationMixin, BaseMutatio
     class Input(PaymentPlanInputType):
         pass
 
-
 class UpdatePaymentPlanMutation(BaseHistoryModelUpdateMutationMixin, BaseMutation):
     _mutation_class = "PaymentPlanMutation"
     _mutation_module = "contribution_plan"
@@ -53,36 +52,63 @@ class UpdatePaymentPlanMutation(BaseHistoryModelUpdateMutationMixin, BaseMutatio
 
     @classmethod
     def _validate_mutation(cls, user, **data):
-        if type(user) is AnonymousUser or not user.id or not user.has_perms(
-                ContributionPlanConfig.gql_mutation_update_paymentplan_perms):
+        # Vérifie les permissions
+        if (
+            type(user) is AnonymousUser
+            or not user.id
+            or not user.has_perms(
+                ContributionPlanConfig.gql_mutation_update_paymentplan_perms
+            )
+        ):
             raise ValidationError(_("mutation.authentication_required"))
 
-        if PaymentPlanService.check_unique_code(data['code'], data['id']):
-            raise ValidationError(_("mutation.payment_plan_code_duplicated"))
+        code = data.get("code")
+        plan_id = data.get("id") or data.get("uuid")
+
+        # Vérifie s'il existe un autre plan actif avec le même code
+        if PaymentPlanService.check_unique_code(code, plan_id):
+            # Vérifie si c’est le même plan (sinon erreur)
+            is_same = cls._model.objects.filter(id=plan_id, code=code).exists()
+            if not is_same:
+                raise ValidationError(_("mutation.payment_plan_code_duplicated"))
 
     @classmethod
     def _mutate(cls, user, **data):
+        # Nettoyage des champs techniques
+        data.pop("client_mutation_id", None)
+        data.pop("client_mutation_label", None)
+
+        # Si aucune date de fin n’est fournie
         if "date_valid_to" not in data:
-            data['date_valid_to'] = None
-        if "client_mutation_id" in data:
-            data.pop('client_mutation_id')
-        if "client_mutation_label" in data:
-            data.pop('client_mutation_label')
-        updated_object = cls._model.objects.filter(id=data['id']).first()
-        benefit_plan_type__model = data.pop('benefit_plan_type__model', None)
+            data["date_valid_to"] = None
+
+        # Recherche du plan existant par ID ou UUID
+        plan_id = data.get("id") or data.get("uuid")
+        updated_object = cls._model.objects.filter(id=plan_id).first()
+        if not updated_object:
+            raise ValidationError(_("mutation.payment_plan_not_found"))
+
+        # Gestion du ContentType dynamique (benefit_plan_type)
+        benefit_plan_type__model = data.pop("benefit_plan_type__model", None)
         if benefit_plan_type__model:
-            model_id = data.get('benefit_plan_id')
+            model_id = data.get("benefit_plan_id")
             content_type = ContentType.objects.get(model=benefit_plan_type__model.lower())
             try:
                 content_type.get_object_for_this_type(pk=model_id)
             except Exception as e:
                 raise AttributeError(e)
-            data['benefit_plan_type'] = content_type
-        [setattr(updated_object, key, data[key]) for key in data]
+            data["benefit_plan_type"] = content_type
+
+        # Mise à jour des champs
+        for key, value in data.items():
+            setattr(updated_object, key, value)
+
+        # Sauvegarde via mixin (traçabilité utilisateur incluse)
         cls.update_object(user=user, object_to_update=updated_object)
 
     class Input(PaymentPlanUpdateInputType):
         pass
+
 
 
 class DeletePaymentPlanMutation(BaseHistoryModelDeleteMutationMixin, BaseDeleteMutation):
