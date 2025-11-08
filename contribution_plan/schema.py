@@ -169,10 +169,11 @@ class Query(graphene.ObjectType):
 
         filters = append_validity_filter(**kwargs)
         model = PaymentPlan
-        if kwargs.get('showHistory', False):
-            query = model.history.filter(*filters).all().as_instances()
+        show_history = kwargs.get('showHistory', False)
+        if show_history:
+            query = model.history.filter(*filters).order_by('-history_date').as_instances()
         else:
-            query = model.objects.filter(*filters).all()
+            query = model.objects.filter(*filters).order_by('-date_created')
         return gql_optimizer.query(query, info)
 
     def resolve_validate_contribution_plan_code(self, info, **kwargs):
