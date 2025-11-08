@@ -26,6 +26,9 @@ DEFAULT_CFG = {
     "gql_mutation_update_paymentplan_perms": ["157103"],
     "gql_mutation_delete_paymentplan_perms": ["157104"],
     "gql_mutation_replace_paymentplan_perms": ["157106"],
+    "payment_plan_create_event": "contribution_plan.payment_plan_create",
+    "payment_plan_update_event": "contribution_plan.payment_plan_update",
+    "payment_plan_delete_event": "contribution_plan.payment_plan_delete",
 }
 
 
@@ -55,6 +58,9 @@ class ContributionPlanConfig(AppConfig):
     gql_mutation_update_paymentplan_perms = []
     gql_mutation_delete_paymentplan_perms = []
     gql_mutation_replace_paymentplan_perms = []
+    payment_plan_create_event = None
+    payment_plan_update_event = None
+    payment_plan_delete_event = None
 
     def __load_config(self, cfg):
         for field in cfg:

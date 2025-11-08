@@ -318,6 +318,66 @@ class PaymentPlan(object):
             return [{"message": "Payment plan code %s already exists" % code}]
         return []
 
+    @staticmethod
+    def _business_data_serializer(data):
+        """
+        Serializer pour formater les données de tâche PaymentPlan pour l'affichage
+        """
+        if not data:
+            return data
+        
+        # Extraire incoming_data et current_data si présents
+        incoming_data = data.get('incoming_data', data)
+        current_data = data.get('current_data', {})
+        
+        formatted = {
+            'incoming_data': {},
+            'current_data': current_data if current_data else None
+        }
+        
+        # Formater les champs de incoming_data
+        if incoming_data:
+            # Informations de base
+            if 'code' in incoming_data:
+                formatted['incoming_data']['code'] = incoming_data.get('code')
+            if 'name' in incoming_data:
+                formatted['incoming_data']['name'] = incoming_data.get('name')
+            if 'periodicity' in incoming_data:
+                formatted['incoming_data']['periodicity'] = incoming_data.get('periodicity')
+            if 'calculation' in incoming_data:
+                formatted['incoming_data']['calculation'] = str(incoming_data.get('calculation'))
+            
+            # Benefit Plan (GenericForeignKey)
+            if 'benefit_plan_id' in incoming_data:
+                formatted['incoming_data']['benefit_plan_id'] = incoming_data.get('benefit_plan_id')
+            if 'benefit_plan_type' in incoming_data:
+                benefit_plan_type = incoming_data.get('benefit_plan_type')
+                if isinstance(benefit_plan_type, dict):
+                    formatted['incoming_data']['benefit_plan_type'] = benefit_plan_type
+                elif hasattr(benefit_plan_type, 'model'):
+                    formatted['incoming_data']['benefit_plan_type'] = {
+                        'model': benefit_plan_type.model,
+                        'app_label': benefit_plan_type.app_label
+                    }
+            if 'benefit_plan_type__model' in incoming_data:
+                formatted['incoming_data']['benefit_plan_type__model'] = incoming_data.get('benefit_plan_type__model')
+            
+            # ID pour update/delete
+            if 'id' in incoming_data:
+                formatted['incoming_data']['id'] = str(incoming_data.get('id'))
+            if 'uuid' in incoming_data:
+                formatted['incoming_data']['uuid'] = str(incoming_data.get('uuid'))
+            if 'ids' in incoming_data:
+                formatted['incoming_data']['ids'] = [str(id) for id in incoming_data.get('ids', [])]
+            if 'uuids' in incoming_data:
+                formatted['incoming_data']['uuids'] = [str(uuid) for uuid in incoming_data.get('uuids', [])]
+        
+        # Si pas de current_data, on peut simplifier
+        if not formatted['current_data']:
+            formatted = formatted['incoming_data']
+        
+        return formatted
+
 
 def _output_exception(model_name, method, exception):
     return {

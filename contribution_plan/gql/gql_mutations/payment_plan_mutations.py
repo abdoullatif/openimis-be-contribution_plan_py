@@ -12,6 +12,9 @@ from contribution_plan.models import PaymentPlan
 from django.contrib.auth.models import AnonymousUser
 from django.core.exceptions import ValidationError
 from django.utils.translation import gettext as _
+from tasks_management.services import TaskService, _get_std_task_data_payload, _get_std_crud_task_data_payload
+from tasks_management.models import Task
+from tasks_management.apps import TasksManagementConfig
 
 
 class CreatePaymentPlanMutation(BaseHistoryModelCreateMutationMixin, BaseMutation):
@@ -41,6 +44,30 @@ class CreatePaymentPlanMutation(BaseHistoryModelCreateMutationMixin, BaseMutatio
             raise ValidationError(_("mutation.authentication_required"))
         if PaymentPlanService.check_unique_code(data['code']):
             raise ValidationError(_("mutation.payment_plan_code_duplicated"))
+
+    @classmethod
+    def _mutate(cls, user, **data):
+        # Permissions & validations
+        cls._validate_mutation(user, **data)
+
+        # Cleanup technical fields
+        data.pop("client_mutation_id", None)
+        data.pop("client_mutation_label", None)
+
+        # Create validation task instead of creating DB object immediately
+        # Pour la création, on utilise _get_std_task_data_payload qui retourne juste incoming_data
+        # On le wrapper dans un dict pour correspondre au format attendu par le handler
+        incoming_data = _get_std_task_data_payload(data)
+        TaskService(user).create({
+            'source': 'payment_plan',
+            'status': Task.Status.RECEIVED,
+            'executor_action_event': TasksManagementConfig.default_executor_event,
+            'business_event': ContributionPlanConfig.payment_plan_create_event,
+            'business_data_serializer': f'{PaymentPlanService.__module__}.{PaymentPlanService.__name__}._business_data_serializer',
+            'data': {'incoming_data': incoming_data},  # Format attendu par le handler
+        })
+        # Async mutation success (actual object will be created on task completion)
+        return None
 
     class Input(PaymentPlanInputType):
         pass
@@ -74,37 +101,26 @@ class UpdatePaymentPlanMutation(BaseHistoryModelUpdateMutationMixin, BaseMutatio
 
     @classmethod
     def _mutate(cls, user, **data):
-        # Nettoyage des champs techniques
+        # Permissions & validations
+        cls._validate_mutation(user, **data)
+
+        # Cleanup technical fields
         data.pop("client_mutation_id", None)
         data.pop("client_mutation_label", None)
 
-        # Si aucune date de fin n’est fournie
-        if "date_valid_to" not in data:
-            data["date_valid_to"] = None
-
-        # Recherche du plan existant par ID ou UUID
+        # Defer update to a task for maker-checker
+        # Récupérer l'objet existant pour avoir current_data
         plan_id = data.get("id") or data.get("uuid")
-        updated_object = cls._model.objects.filter(id=plan_id).first()
-        if not updated_object:
-            raise ValidationError(_("mutation.payment_plan_not_found"))
-
-        # Gestion du ContentType dynamique (benefit_plan_type)
-        benefit_plan_type__model = data.pop("benefit_plan_type__model", None)
-        if benefit_plan_type__model:
-            model_id = data.get("benefit_plan_id")
-            content_type = ContentType.objects.get(model=benefit_plan_type__model.lower())
-            try:
-                content_type.get_object_for_this_type(pk=model_id)
-            except Exception as e:
-                raise AttributeError(e)
-            data["benefit_plan_type"] = content_type
-
-        # Mise à jour des champs
-        for key, value in data.items():
-            setattr(updated_object, key, value)
-
-        # Sauvegarde via mixin (traçabilité utilisateur incluse)
-        cls.update_object(user=user, object_to_update=updated_object)
+        existing_object = cls._model.objects.filter(id=plan_id).first() if plan_id else None
+        TaskService(user).create({
+            'source': 'payment_plan',
+            'status': Task.Status.RECEIVED,
+            'executor_action_event': TasksManagementConfig.default_executor_event,
+            'business_event': ContributionPlanConfig.payment_plan_update_event,
+            'business_data_serializer': f'{PaymentPlanService.__module__}.{PaymentPlanService.__name__}._business_data_serializer',
+            'data': _get_std_crud_task_data_payload(existing_object, data),  # Retourne {incoming_data, current_data}
+        })
+        return None
 
     class Input(PaymentPlanUpdateInputType):
         pass
@@ -121,6 +137,35 @@ class DeletePaymentPlanMutation(BaseHistoryModelDeleteMutationMixin, BaseDeleteM
         if type(user) is AnonymousUser or not user.id or not user.has_perms(
                 ContributionPlanConfig.gql_mutation_delete_paymentplan_perms):
             raise ValidationError(_("mutation.authentication_required"))
+
+    @classmethod
+    def _mutate(cls, user, **data):
+        # Permissions & validations
+        cls._validate_mutation(user, **data)
+
+        # Cleanup technical fields
+        data.pop("client_mutation_id", None)
+        data.pop("client_mutation_label", None)
+
+        # Defer delete to a task for maker-checker
+        # Récupérer l'objet existant pour avoir current_data
+        ids = data.get('ids') or data.get('uuids') or []
+        if ids:
+            existing_object = cls._model.objects.filter(id=ids[0]).first() if ids else None
+        else:
+            obj_id = data.get('id') or data.get('uuid')
+            existing_object = cls._model.objects.filter(id=obj_id).first() if obj_id else None
+        # Pour delete, on utilise _get_std_crud_task_data_payload pour avoir les données actuelles
+        task_data = _get_std_crud_task_data_payload(existing_object, data)
+        TaskService(user).create({
+            'source': 'payment_plan',
+            'status': Task.Status.RECEIVED,
+            'executor_action_event': TasksManagementConfig.default_executor_event,
+            'business_event': ContributionPlanConfig.payment_plan_delete_event,
+            'business_data_serializer': f'{PaymentPlanService.__module__}.{PaymentPlanService.__name__}._business_data_serializer',
+            'data': task_data,  # Retourne {incoming_data, current_data}
+        })
+        return None
 
     class Input(DeleteInputType):
         pass
