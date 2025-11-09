@@ -346,6 +346,10 @@ class PaymentPlan(object):
                 formatted['incoming_data']['periodicity'] = incoming_data.get('periodicity')
             if 'calculation' in incoming_data:
                 formatted['incoming_data']['calculation'] = str(incoming_data.get('calculation'))
+            if 'date_valid_from' in incoming_data:
+                formatted['incoming_data']['date_valid_from'] = incoming_data.get('date_valid_from')
+            if 'date_valid_to' in incoming_data:
+                formatted['incoming_data']['date_valid_to'] = incoming_data.get('date_valid_to')
             
             # Benefit Plan (GenericForeignKey)
             if 'benefit_plan_id' in incoming_data:
