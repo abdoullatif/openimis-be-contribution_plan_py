@@ -6,6 +6,7 @@ from core.signals import bind_service_signal
 from tasks_management.models import Task
 
 from contribution_plan.apps import ContributionPlanConfig
+from contribution_plan.payment_plan_task_recap import sanitize_payment_plan_payload_for_db
 from contribution_plan.services import PaymentPlan as PaymentPlanService
 
 logger = logging.getLogger(__name__)
@@ -40,12 +41,12 @@ def bind_service_signals():
 
             logger.info(f"on_task_complete_payment_plan_create: Creating PaymentPlan with data keys: {list(data.keys())}")
 
-            # Align dynamic ContentType input if provided as benefit_plan_type__model
             benefit_plan_type_model = data.pop('benefit_plan_type__model', None)
+            data = sanitize_payment_plan_payload_for_db(data)
+
             if benefit_plan_type_model:
                 from django.contrib.contenttypes.models import ContentType
                 content_type = ContentType.objects.get(model=str(benefit_plan_type_model).lower())
-                # Validate object existence if id provided
                 model_id = data.get('benefit_plan_id')
                 if model_id is not None:
                     content_type.get_object_for_this_type(pk=model_id)
@@ -78,10 +79,10 @@ def bind_service_signals():
             if task['status'] != Task.Status.COMPLETED:
                 return
             user = User.objects.get(id=result['data']['user']['id'])
-            data = task['data']['incoming_data']
-
-            # Align dynamic ContentType input if provided as benefit_plan_type__model
+            data = dict(task['data']['incoming_data'])
             benefit_plan_type_model = data.pop('benefit_plan_type__model', None)
+            data = sanitize_payment_plan_payload_for_db(data)
+
             if benefit_plan_type_model:
                 from django.contrib.contenttypes.models import ContentType
                 content_type = ContentType.objects.get(model=str(benefit_plan_type_model).lower())

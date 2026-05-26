@@ -164,4 +164,4 @@ class PaymentPlanGQLType(DjangoObjectType):
 
     @classmethod
     def get_queryset(cls, queryset, info):
-        return PaymentPlan.get_queryset(queryset, info)
+        return PaymentPlan.get_queryset(queryset, info).order_by("-date_created")

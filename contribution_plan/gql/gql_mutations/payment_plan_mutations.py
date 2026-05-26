@@ -12,6 +12,7 @@ from contribution_plan.models import PaymentPlan
 from django.contrib.auth.models import AnonymousUser
 from django.core.exceptions import ValidationError
 from django.utils.translation import gettext as _
+from contribution_plan.payment_plan_task_recap import attach_beneficiary_scope_to_task_payload
 from tasks_management.services import TaskService, _get_std_task_data_payload, _get_std_crud_task_data_payload
 from tasks_management.models import Task
 from tasks_management.apps import TasksManagementConfig
@@ -57,7 +58,9 @@ class CreatePaymentPlanMutation(BaseHistoryModelCreateMutationMixin, BaseMutatio
         # Create validation task instead of creating DB object immediately
         # Pour la création, on utilise _get_std_task_data_payload qui retourne juste incoming_data
         # On le wrapper dans un dict pour correspondre au format attendu par le handler
-        incoming_data = _get_std_task_data_payload(data)
+        incoming_data = attach_beneficiary_scope_to_task_payload(
+            _get_std_task_data_payload(data)
+        )
         TaskService(user).create({
             'source': 'payment_plan',
             'status': Task.Status.RECEIVED,
@@ -112,13 +115,15 @@ class UpdatePaymentPlanMutation(BaseHistoryModelUpdateMutationMixin, BaseMutatio
         # Récupérer l'objet existant pour avoir current_data
         plan_id = data.get("id") or data.get("uuid")
         existing_object = cls._model.objects.filter(id=plan_id).first() if plan_id else None
+        task_data = _get_std_crud_task_data_payload(existing_object, data)
+        task_data["incoming_data"] = attach_beneficiary_scope_to_task_payload(task_data["incoming_data"])
         TaskService(user).create({
             'source': 'payment_plan',
             'status': Task.Status.RECEIVED,
             'executor_action_event': TasksManagementConfig.default_executor_event,
             'business_event': ContributionPlanConfig.payment_plan_update_event,
             'business_data_serializer': f'{PaymentPlanService.__module__}.{PaymentPlanService.__name__}._business_data_serializer',
-            'data': _get_std_crud_task_data_payload(existing_object, data),  # Retourne {incoming_data, current_data}
+            'data': task_data,
         })
         return None
 
@@ -157,13 +162,18 @@ class DeletePaymentPlanMutation(BaseHistoryModelDeleteMutationMixin, BaseDeleteM
             existing_object = cls._model.objects.filter(id=obj_id).first() if obj_id else None
         # Pour delete, on utilise _get_std_crud_task_data_payload pour avoir les données actuelles
         task_data = _get_std_crud_task_data_payload(existing_object, data)
+        scope_source = task_data.get("current_data") or task_data.get("incoming_data") or {}
+        task_data["incoming_data"] = attach_beneficiary_scope_to_task_payload({
+            **(task_data.get("incoming_data") or {}),
+            **scope_source,
+        })
         TaskService(user).create({
             'source': 'payment_plan',
             'status': Task.Status.RECEIVED,
             'executor_action_event': TasksManagementConfig.default_executor_event,
             'business_event': ContributionPlanConfig.payment_plan_delete_event,
             'business_data_serializer': f'{PaymentPlanService.__module__}.{PaymentPlanService.__name__}._business_data_serializer',
-            'data': task_data,  # Retourne {incoming_data, current_data}
+            'data': task_data,
         })
         return None
 

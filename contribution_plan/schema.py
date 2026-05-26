@@ -27,6 +27,14 @@ from .models import ContributionPlanMutation, ContributionPlanBundleMutation
 from .apps import ContributionPlanConfig
 
 
+class PaymentPlanConnectionField(OrderedDjangoFilterConnectionField):
+    """Force le tri date_created DESC (le resolver ne peut pas modifier args['orderBy'])."""
+
+    @classmethod
+    def orderBy(cls, qs, args):
+        return qs.order_by("-date_created")
+
+
 class Query(graphene.ObjectType):
     contribution_plan = OrderedDjangoFilterConnectionField(
         ContributionPlanGQLType,
@@ -58,7 +66,7 @@ class Query(graphene.ObjectType):
         applyDefaultValidityFilter=graphene.Boolean()
     )
 
-    payment_plan = OrderedDjangoFilterConnectionField(
+    payment_plan = PaymentPlanConnectionField(
         PaymentPlanGQLType,
         orderBy=graphene.List(of_type=graphene.String),
         dateValidFrom__Gte=graphene.DateTime(),
@@ -173,7 +181,7 @@ class Query(graphene.ObjectType):
         if show_history:
             query = model.history.filter(*filters).order_by('-history_date').as_instances()
         else:
-            query = model.objects.filter(*filters).order_by('-date_created')
+            query = model.objects.filter(*filters).order_by("-date_created")
         return gql_optimizer.query(query, info)
 
     def resolve_validate_contribution_plan_code(self, info, **kwargs):
