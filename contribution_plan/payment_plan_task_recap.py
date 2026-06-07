@@ -193,6 +193,16 @@ def _format_periodicity(value):
     return PERIODICITY_LABELS.get(key, str(key))
 
 
+def _snapshot_periodicity(plan_data):
+    """Libellé FR pour l'écran tâche ; source : periodicity (API) ou periodicite (legacy)."""
+    if not isinstance(plan_data, dict):
+        return None
+    raw = plan_data.get("periodicity")
+    if raw is None:
+        raw = plan_data.get("periodicite")
+    return _format_periodicity(raw)
+
+
 def _format_calculation_params(json_ext):
     if not isinstance(json_ext, dict):
         return None
@@ -384,6 +394,9 @@ def attach_beneficiary_scope_to_task_payload(payload):
     """Pré-calcule le récap bénéficiaires à la création de la tâche (évite le recalcul à l'affichage)."""
     scope = build_beneficiary_scope_summary(payload, recompute=True)
     payload.update(scope)
+    periodicite = _snapshot_periodicity(payload)
+    if periodicite is not None:
+        payload["periodicite"] = periodicite
     return payload
 
 
@@ -396,6 +409,7 @@ def _normalize_plan_snapshot(plan_data):
         "nom": plan_data.get("name"),
         "regime_prestations": _resolve_benefit_plan_label(plan_data),
         "regle_calcul": _resolve_calculation_label(plan_data.get("calculation")),
+        "periodicite": _snapshot_periodicity(plan_data),
         "date_debut": format_date_only(plan_data.get("date_valid_from")),
         "date_fin": format_date_only(plan_data.get("date_valid_to")),
         "parametres_calcul": _format_calculation_params(json_ext),
@@ -411,6 +425,7 @@ def _build_changes(current, proposed):
         ("nom", "Nom"),
         ("regime_prestations", "Régime de prestations"),
         ("regle_calcul", "Règle de calcul"),
+        ("periodicite", "Périodicité"),
         ("date_debut", "Date début"),
         ("date_fin", "Date fin"),
         ("parametres_calcul", "Paramètres calcul"),
@@ -441,6 +456,7 @@ def format_payment_plan_recap_text(operation_type, proposed, current=None, chang
     for label, key in (
         ("Régime de prestations", "regime_prestations"),
         ("Règle de calcul", "regle_calcul"),
+        ("Périodicité", "periodicite"),
         ("Validité du", "date_debut"),
         ("Validité au", "date_fin"),
         ("Paramètres calcul", "parametres_calcul"),
